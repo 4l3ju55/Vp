@@ -2,10 +2,16 @@ const express = require('express');
 const fs = require('fs').promises;
 //moodul urli lahtiharutamiseks, et saaks post osad kättesaadavaks
 const bodyparser = require('body-parser');
-const dateET = require('./src/dateTimeET')
+//moodul andmebaasiga suhtlemiseks, promises osaga async proge jaoks
+const mysql = require('mysql2/promise');
+
+const dateET = require('./src/dateTimeET');
 
 const textRef = 'Public/txt/vanasonad.txt';
 const regTextRef = 'Public/txt/visits.txt';
+
+//moodul .env lugemiseks ja keskkonnamuutujate parsimiseks
+require('dotenv').config();
 
 //Käivitan express.js funktsiooni ja anna nimeks "app"
 const app = express();
@@ -84,7 +90,81 @@ app.get('/lastvisit', async(req, res)=>{
 	}
 });
 
-
-app.listen(5134, '0.0.0.0', ()=>{
-    console.log('Server töötab pordil 5134');
+app.get('/eestifilm', (req, res) => {
+	res.render('eestifilm');
 });
+
+app.get('/eestifilm/inimesed', async (req, res) => {
+	//console.log('Andmebaasiserver on: ' + process.env.DB_HOST);
+	let conn;
+	try {
+		conn = await mysql.createConnection({
+			host: process.env.DB_HOST,
+			user: process.env.DB_USER,
+			password: process.env.DB_PASS,
+			database: process.env.DB_NAME
+		});
+		const sqlReq = 'SELECT * FROM person ORDER by last_name';
+		const [sqlRes] = await conn.execute(sqlReq);
+		console.log(sqlRes);
+		res.render('eestifilm_inimesed', {personList: sqlRes});
+	}
+	catch (err){
+		console.log('Viga andmebaasist lugemisel: ' + err);
+		res.render('eestifilm_inimesed', {personList: []});
+	}
+	finally {
+		if(conn){
+		await conn.end();
+		}
+	}
+	
+});
+
+app.get('/eestifilm/inimesed_add', (req, res) =>{
+	res.render('inimesed_add', {notice: 'Ootan sisestust!'});
+});
+
+app.post('/eestifilm/inimesed_add', async (req, res) =>{
+	console.log(req.body);
+	//kontrollime andmete olemasolu
+	if(!req.body.firstNameInput || !req.body.lastNameInput || !req.body.bornInput || !req.body.bornInput >= new Date()) {
+		console.log('Andmed pole korrektsed');
+		return res.render('inimesed_add', {notice: 'Andmed on puudulikud!'});
+	}
+	let conn;
+	try {
+		conn = await mysql.createConnection({
+			host: process.env.DB_HOST,
+			user: process.env.DB_USER,
+			password: process.env.DB_PASS,
+			database: process.env.DB_NAME
+		});
+		let sqlReq = 'INSERT INTO person (first_name, last_name, born, deceased) VALUES (?,?,?,?)';
+		let deceasedDate = null;
+		if(req.body.deceasedInput !=''){
+			deceasedDate = req.body.deceasedInput;
+		}
+		await conn.execute(sqlReq, [
+			req.body.firstNameInput,
+			req.body.lastNameInput,
+			req.body.bornInput,
+			req.body.deceasedInput
+		]);
+		res.render('inimesed_add', {notice: 'Andmed salvestati, ootan uut sisestust!'});
+	}
+	catch(err){
+		console.log('Viga andmebaasiga suhtlemisel: ' + err);
+		res.render('inimesed_add', {notice: 'Andmebaasiga tekkis viga!'});
+	}
+	finally {
+		if(conn){
+		await conn.end();
+		}
+	}
+	
+});
+
+
+
+app.listen(5134)
